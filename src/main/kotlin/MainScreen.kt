@@ -8,6 +8,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -32,6 +34,11 @@ fun SideloaderApp(
     var logs by remember { mutableStateOf(listOf("Sistem hazır. Cihaz bekleniyor...")) }
     var isWorking by remember { mutableStateOf(false) }
     var deleteAfterInstall by remember { mutableStateOf(true) }
+
+    // Public Config State (URL & Password)
+    val initialConfig = remember { rcloneController.loadSavedConfig() }
+    var mirrorUrl by remember { mutableStateOf(initialConfig.baseUri) }
+    var mirrorPassword by remember { mutableStateOf(initialConfig.password) }
 
     val tempDownloadDir = remember { File(System.getProperty("user.dir"), "downloads").apply { mkdirs() } }
     val backupBaseDir = remember { File(System.getProperty("user.dir"), "backups").apply { mkdirs() } }
@@ -105,7 +112,7 @@ fun SideloaderApp(
 
                 TabRow(selectedTabIndex = selectedTab) {
                     Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("📦 Yerel Kurulum & Yüklü Oyunlar") })
-                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("☁️ Bulut Kütüphanesi (Rclone)") })
+                    Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("☁️ Bulut Kütüphanesi (Mirror)") })
                     Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("⚙️ Quest Donanım & İnce Ayarlar") })
                 }
 
@@ -120,7 +127,7 @@ fun SideloaderApp(
                             onSelectTarget = { targetFile ->
                                 scope.launch {
                                     isWorking = true
-                                    val res = installerService.sideloadDirectoryOrApk(targetFile) { appendLog(it) }
+                                    val res = installerService.sideloadDirectoryOrApk(targetFile, mirrorPassword) { appendLog(it) }
                                     if (res.isFailure) appendLog("❌ Hata: ${res.exceptionOrNull()?.message}")
                                     refreshDeviceData()
                                     isWorking = false
@@ -152,15 +159,33 @@ fun SideloaderApp(
                             remotePackages = remotePackages,
                             searchQuery = searchQuery,
                             onSearchChange = { searchQuery = it },
+                            mirrorUrl = mirrorUrl,
+                            onMirrorUrlChange = { mirrorUrl = it },
+                            mirrorPassword = mirrorPassword,
+                            onMirrorPasswordChange = { mirrorPassword = it },
+                            onParseJson = { rawJson ->
+                                val parsed = rcloneController.parsePublicConfig(rawJson)
+                                if (parsed != null) {
+                                    mirrorUrl = parsed.baseUri
+                                    mirrorPassword = parsed.password
+                                    rcloneController.saveConfig(parsed)
+                                    appendLog("📋 JSON başarıyla ayrıştırıldı ve kaydedildi.")
+                                    true
+                                } else {
+                                    appendLog("❌ Geçersiz JSON formatı! 'baseUri' bulunamadı.")
+                                    false
+                                }
+                            },
                             deleteAfterInstall = deleteAfterInstall,
                             onToggleDelete = { deleteAfterInstall = it },
                             isWorking = isWorking,
                             hasDevice = devices.isNotEmpty(),
-                            onFetchRemoteList = { remoteName ->
+                            onSaveAndFetchRemoteList = { url, pass ->
                                 scope.launch {
                                     isWorking = true
-                                    appendLog("☁️ '$remoteName' sunucusundan oyun listesi çekiliyor...")
-                                    val res = rcloneController.listRemotePackages(remoteName)
+                                    rcloneController.saveConfig(PublicConfig(url, pass))
+                                    appendLog("☁️ Sunucu listesi güncelleniyor ($url)...")
+                                    val res = rcloneController.listRemotePackages("quest-mirror")
                                     res.onSuccess { list ->
                                         remotePackages = list
                                         appendLog("✅ ${list.size} adet paket listelendi.")
@@ -170,19 +195,19 @@ fun SideloaderApp(
                                     isWorking = false
                                 }
                             },
-                            onDownloadAndInstall = { remoteName, pkg ->
+                            onDownloadAndInstall = { pkg ->
                                 scope.launch {
                                     isWorking = true
                                     appendLog("⬇️ '${pkg.folderName}' indiriliyor...")
                                     val dlRes = rcloneController.downloadPackage(
-                                        remoteName = remoteName,
+                                        remoteName = "quest-mirror",
                                         packageFolder = pkg.folderName,
                                         localDestDir = tempDownloadDir,
                                         onProgressLine = { appendLog("   $it") }
                                     )
                                     dlRes.onSuccess { downloadedDir ->
-                                        appendLog("✔️ İndirme tamamlandı, kurulum başlıyor...")
-                                        val instRes = installerService.sideloadDirectoryOrApk(downloadedDir) { appendLog(it) }
+                                        appendLog("✔️ İndirme tamamlandı, kurulum hazırlanıyor...")
+                                        val instRes = installerService.sideloadDirectoryOrApk(downloadedDir, mirrorPassword) { appendLog(it) }
                                         if (instRes.isSuccess) {
                                             appendLog("🎉 '${pkg.folderName}' başarıyla kuruldu!")
                                             if (deleteAfterInstall) {
@@ -317,20 +342,122 @@ fun CloudLibraryTab(
     remotePackages: List<RemotePackage>,
     searchQuery: String,
     onSearchChange: (String) -> Unit,
+    mirrorUrl: String,
+    onMirrorUrlChange: (String) -> Unit,
+    mirrorPassword: String,
+    onMirrorPasswordChange: (String) -> Unit,
+    onParseJson: (String) -> Boolean,
     deleteAfterInstall: Boolean,
     onToggleDelete: (Boolean) -> Unit,
     isWorking: Boolean,
     hasDevice: Boolean,
-    onFetchRemoteList: (String) -> Unit,
-    onDownloadAndInstall: (String, RemotePackage) -> Unit
+    onSaveAndFetchRemoteList: (String, String) -> Unit,
+    onDownloadAndInstall: (RemotePackage) -> Unit
 ) {
-    var remoteName by remember { mutableStateOf("quest-mirror") }
+    var passwordVisible by remember { mutableStateOf(false) }
+    var showJsonDialog by remember { mutableStateOf(false) }
+    var pastedJsonText by remember { mutableStateOf("") }
+
     val filteredList = remember(remotePackages, searchQuery) {
         if (searchQuery.isBlank()) remotePackages
         else remotePackages.filter { it.folderName.contains(searchQuery, ignoreCase = true) }
     }
 
+    if (showJsonDialog) {
+        AlertDialog(
+            onDismissRequest = { showJsonDialog = false },
+            title = { Text("Public Config (JSON) Yapıştır") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        "Telegram, Discord veya topluluktan aldığınız JSON bloğunu buraya yapıştırın:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                    OutlinedTextField(
+                        value = pastedJsonText,
+                        onValueChange = { pastedJsonText = it },
+                        modifier = Modifier.fillMaxWidth().height(130.dp),
+                        placeholder = { Text("{\n  \"baseUri\": \"https://...\",\n  \"password\": \"...\"\n}") }
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (onParseJson(pastedJsonText)) {
+                        showJsonDialog = false
+                        pastedJsonText = ""
+                        onSaveAndFetchRemoteList(mirrorUrl, mirrorPassword)
+                    }
+                }) {
+                    Text("Ayrıştır & Kaydet")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showJsonDialog = false }) {
+                    Text("İptal")
+                }
+            }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        // Public Mirror Configuration Card
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Bulut Sunucu & Şifre Ayarları (Public Mirror)", style = MaterialTheme.typography.titleSmall)
+                    OutlinedButton(
+                        onClick = { showJsonDialog = true },
+                        modifier = Modifier.height(36.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Text("📋 Hızlı JSON Yapıştır", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = mirrorUrl,
+                        onValueChange = onMirrorUrlChange,
+                        label = { Text("Mirror URL (Base URI)") },
+                        modifier = Modifier.weight(0.55f),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = mirrorPassword,
+                        onValueChange = onMirrorPasswordChange,
+                        label = { Text("Arşiv Şifresi (Password)") },
+                        modifier = Modifier.weight(0.45f),
+                        singleLine = true,
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            TextButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Text(if (passwordVisible) "Gizle" else "Göster", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    )
+
+                    Button(
+                        onClick = { onSaveAndFetchRemoteList(mirrorUrl, mirrorPassword) },
+                        enabled = !isWorking,
+                        modifier = Modifier.height(54.dp)
+                    ) {
+                        Text("Listeyi Güncelle")
+                    }
+                }
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -343,21 +470,11 @@ fun CloudLibraryTab(
                 modifier = Modifier.weight(1f),
                 singleLine = true
             )
-            OutlinedTextField(
-                value = remoteName,
-                onValueChange = { remoteName = it },
-                label = { Text("Rclone Sunucu Adı") },
-                modifier = Modifier.width(180.dp),
-                singleLine = true
-            )
-            Button(onClick = { onFetchRemoteList(remoteName) }, enabled = !isWorking, modifier = Modifier.height(54.dp)) {
-                Text("Listeyi Güncelle")
-            }
-        }
 
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = deleteAfterInstall, onCheckedChange = onToggleDelete)
-            Text("Kurulum tamamlandıktan sonra inen dosyaları bilgisayardan otomatik sil", style = MaterialTheme.typography.bodySmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = deleteAfterInstall, onCheckedChange = onToggleDelete)
+                Text("Kurulum sonrası geçici dosyaları sil", style = MaterialTheme.typography.bodySmall)
+            }
         }
 
         LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -370,7 +487,7 @@ fun CloudLibraryTab(
                     ) {
                         Text(item.folderName, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                         Button(
-                            onClick = { onDownloadAndInstall(remoteName, item) },
+                            onClick = { onDownloadAndInstall(item) },
                             enabled = hasDevice && !isWorking
                         ) {
                             Text("İndir ve Kur")

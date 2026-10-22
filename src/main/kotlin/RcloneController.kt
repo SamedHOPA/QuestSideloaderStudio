@@ -4,18 +4,79 @@ import java.io.File
 
 data class RemotePackage(val folderName: String, val sizeInfo: String = "")
 
+data class PublicConfig(val baseUri: String, val password: String)
+
 class RcloneController(
     private val rclonePath: String = "rclone",
-    private val configPath: String = "rclone.conf"
+    private val configPath: String = "rclone.conf",
+    private val configFile: File = File("config.json")
 ) {
 
     private fun resolveRcloneBinary(): String =
         if (File("bin/rclone.exe").exists()) "bin/rclone.exe" else rclonePath
 
-    suspend fun listRemotePackages(remoteName: String, remotePath: String = ""): Result<List<RemotePackage>> = withContext(Dispatchers.IO) {
+    fun loadSavedConfig(): PublicConfig {
+        return try {
+            if (configFile.exists()) {
+                val content = configFile.readText()
+                parsePublicConfig(content) ?: PublicConfig("https://go.srcdl1.xyz/", "Z0w1OVZmZ1B4b0hS")
+            } else {
+                PublicConfig("https://go.srcdl1.xyz/", "Z0w1OVZmZ1B4b0hS")
+            }
+        } catch (e: Exception) {
+            PublicConfig("https://go.srcdl1.xyz/", "Z0w1OVZmZ1B4b0hS")
+        }
+    }
+
+    fun saveConfig(config: PublicConfig) {
         try {
+            val json = """
+{
+  "baseUri": "${config.baseUri.trim()}",
+  "password": "${config.password.trim()}"
+}
+            """.trimIndent()
+            configFile.writeText(json)
+            updateRcloneConfigFile(config.baseUri)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun updateRcloneConfigFile(baseUri: String) {
+        val confFile = File(configPath)
+        val url = if (baseUri.endsWith("/")) baseUri.trim() else "${baseUri.trim()}/"
+        val content = """
+[quest-mirror]
+type = http
+url = $url
+        """.trimIndent()
+        confFile.writeText(content)
+    }
+
+    fun parsePublicConfig(rawText: String): PublicConfig? {
+        val uriRegex = """"baseUri"\s*:\s*"([^"]+)"""".toRegex()
+        val passRegex = """"password"\s*:\s*"([^"]+)"""".toRegex()
+
+        val uriMatch = uriRegex.find(rawText)?.groupValues?.get(1)
+        val passMatch = passRegex.find(rawText)?.groupValues?.get(1)
+
+        return if (uriMatch != null) {
+            PublicConfig(uriMatch, passMatch ?: "")
+        } else null
+    }
+
+    suspend fun listRemotePackages(remoteName: String = "quest-mirror", remotePath: String = ""): Result<List<RemotePackage>> = withContext(Dispatchers.IO) {
+        try {
+            val rcloneBin = resolveRcloneBinary()
+            val conf = File(configPath)
+            if (!conf.exists()) {
+                val saved = loadSavedConfig()
+                updateRcloneConfigFile(saved.baseUri)
+            }
+
             val process = ProcessBuilder(
-                resolveRcloneBinary(), "lsf", "$remoteName:$remotePath",
+                rcloneBin, "lsf", "$remoteName:$remotePath",
                 "--config", configPath,
                 "--dirs-only"
             ).redirectErrorStream(true).start()
@@ -35,7 +96,7 @@ class RcloneController(
     }
 
     suspend fun downloadPackage(
-        remoteName: String,
+        remoteName: String = "quest-mirror",
         packageFolder: String,
         localDestDir: File,
         onProgressLine: (String) -> Unit
@@ -54,7 +115,7 @@ class RcloneController(
 
             process.inputStream.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
-                    if (line.contains("Transferred:") || line.contains("%")) {
+                    if (line.contains("Transferred:") || line.contains("%") || line.contains("ETA")) {
                         onProgressLine(line.trim())
                     }
                 }

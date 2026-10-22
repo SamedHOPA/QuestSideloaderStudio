@@ -7,3 +7,4 @@ backups/
 bin/*.exe
 bin/*.dll
 rclone.conf
+config.json
