@@ -20,7 +20,35 @@ jobs:
           cache: gradle
 
       - name: Build Distributable Application
-        run: gradle createDistributable
+        run: .\gradlew.bat createDistributable
+
+      - name: Bundle Portable Binaries (adb, rclone, 7z)
+        shell: powershell
+        run: |
+          $binDir = "build/compose/binaries/main/app/QuestSideloaderStudio/bin"
+          New-Item -ItemType Directory -Force -Path $binDir
+
+          # Download Android Platform-Tools (ADB)
+          Write-Host "Downloading Android Platform-Tools..."
+          Invoke-WebRequest -Uri "https://dl.google.com/android/repository/platform-tools-latest-windows.zip" -OutFile "platform-tools.zip"
+          Expand-Archive -Path "platform-tools.zip" -DestinationPath "pt_temp" -Force
+          Copy-Item "pt_temp/platform-tools/adb.exe" -Destination $binDir -Force
+          Copy-Item "pt_temp/platform-tools/AdbWinApi.dll" -Destination $binDir -Force
+          Copy-Item "pt_temp/platform-tools/AdbWinUsbApi.dll" -Destination $binDir -Force
+
+          # Download Rclone
+          Write-Host "Downloading Rclone..."
+          Invoke-WebRequest -Uri "https://downloads.rclone.org/rclone-current-windows-amd64.zip" -OutFile "rclone.zip"
+          Expand-Archive -Path "rclone.zip" -DestinationPath "rc_temp" -Force
+          $rcloneExe = (Get-ChildItem "rc_temp" -Recurse -Filter "rclone.exe").FullName
+          Copy-Item $rcloneExe -Destination $binDir -Force
+
+          # Copy 7-Zip from GitHub Windows runner
+          Write-Host "Bundling 7-Zip..."
+          if (Test-Path "C:\Program Files\7-Zip\7z.exe") {
+              Copy-Item "C:\Program Files\7-Zip\7z.exe" -Destination $binDir -Force
+              Copy-Item "C:\Program Files\7-Zip\7z.dll" -Destination $binDir -Force
+          }
 
       - name: Upload Windows Portable App Artifact
         uses: actions/upload-artifact@v4
