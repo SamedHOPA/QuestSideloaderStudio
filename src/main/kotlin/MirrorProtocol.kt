@@ -49,9 +49,15 @@ data class RemotePackage(
     val sizeInfo: String = "",
     val displayName: String = folderName,
     val packageName: String = "",
-    val versionCode: String = ""
+    val versionCode: String = "",
+    val lastUpdated: String = "",
+    val downloads: String = "",
+    val rating: String = ""
 ) {
     val remoteHash: String get() = MirrorProtocol.hash(folderName)
+    val sizeMb: Double get() = sizeInfo.toDoubleOrNull() ?: 0.0
+    val downloadCount: Double get() = downloads.toDoubleOrNull() ?: 0.0
+    val ratingScore: Double get() = rating.toDoubleOrNull() ?: 0.0
 }
 
 object MirrorProtocol {
@@ -72,7 +78,16 @@ object MirrorProtocol {
         val entries = lines.drop(1).mapIndexed { index, line ->
             val cells = line.split(';')
             require(cells.size >= 3 && cells[1].isNotBlank()) { "Katalog satırı geçersiz: ${index + 2}" }
-            RemotePackage(cells[1], cells.getOrElse(5) { "" }, cells[0], cells[2], cells.getOrElse(3) { "" })
+            RemotePackage(
+                folderName = cells[1],
+                sizeInfo = cells.getOrElse(5) { "" },
+                displayName = cells[0],
+                packageName = cells[2],
+                versionCode = cells.getOrElse(3) { "" },
+                lastUpdated = cells.getOrElse(4) { "" },
+                downloads = cells.getOrElse(6) { "" },
+                rating = cells.getOrElse(7) { "" }
+            )
         }
         require(entries.isNotEmpty()) { "Katalog boş; önceki katalog korunuyor." }
         return entries.distinctBy { it.folderName }

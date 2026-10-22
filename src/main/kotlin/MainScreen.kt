@@ -457,6 +457,25 @@ fun GameGridCard(
                     }
                 }
 
+                // Popularity Badge
+                if (item.downloadCount > 0) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFFD32F2F).copy(alpha = 0.85f)
+                    ) {
+                        Text(
+                            text = "🔥 ${item.downloads}",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
                 // Size Badge
                 if (item.sizeInfo.isNotBlank()) {
                     Surface(
@@ -491,8 +510,13 @@ fun GameGridCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                val details = buildList {
+                    if (item.versionCode.isNotBlank()) add("v${item.versionCode}")
+                    if (item.lastUpdated.isNotBlank()) add(item.lastUpdated.substringBefore(" "))
+                }.joinToString(" • ")
+
                 Text(
-                    text = if (item.versionCode.isNotBlank()) "v${item.versionCode} • ${item.packageName}" else item.packageName,
+                    text = if (details.isNotBlank()) "$details • ${item.packageName}" else item.packageName,
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray,
                     maxLines = 1,
@@ -571,14 +595,23 @@ fun GameListRow(
 
             Column(Modifier.weight(1f)) {
                 Text(item.displayName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                val subtitle = buildList {
+                    if (item.folderName.isNotBlank()) add(item.folderName)
+                    if (item.lastUpdated.isNotBlank()) add(item.lastUpdated)
+                }.joinToString(" • ")
                 Text(
-                    text = "${item.folderName} • ${item.packageName}",
+                    text = subtitle.ifBlank { item.packageName },
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray,
                     maxLines = 1
                 )
-                if (item.sizeInfo.isNotBlank()) {
-                    Text(formatSize(item.sizeInfo), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (item.sizeInfo.isNotBlank()) {
+                        Text(formatSize(item.sizeInfo), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    if (item.downloadCount > 0) {
+                        Text("🔥 Popülerlik: ${item.downloads}", style = MaterialTheme.typography.labelSmall, color = Color(0xFFFFA726))
+                    }
                 }
             }
 
@@ -597,6 +630,15 @@ fun GameListRow(
             }
         }
     }
+}
+
+enum class SortOption(val title: String) {
+    POPULARITY_DESC("🔥 En Popüler"),
+    NAME_ASC("🔤 İsim (A-Z)"),
+    NAME_DESC("🔤 İsim (Z-A)"),
+    SIZE_DESC("📦 Boyut (En Büyük)"),
+    SIZE_ASC("📦 Boyut (En Küçük)"),
+    RECENT_DESC("🕒 Son Güncellenen")
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -629,6 +671,8 @@ fun CloudLibraryTab(
     var pastedJsonText by remember { mutableStateOf("") }
     var isGridView by remember { mutableStateOf(true) }
     var selectedCategory by remember { mutableStateOf("Tümü") }
+    var selectedSort by remember { mutableStateOf(SortOption.POPULARITY_DESC) }
+    var sortMenuExpanded by remember { mutableStateOf(false) }
 
     val categories = listOf(
         "Tümü",
@@ -639,20 +683,29 @@ fun CloudLibraryTab(
         "📦 Büyük (+2GB)"
     )
 
-    val filteredList = remember(remotePackages, searchQuery, selectedCategory) {
-        remotePackages.filter { item ->
+    val filteredList = remember(remotePackages, searchQuery, selectedCategory, selectedSort) {
+        val filtered = remotePackages.filter { item ->
             val matchesCategory = when (selectedCategory) {
                 "🎮 VR Oyunları" -> !item.displayName.startsWith("_")
                 "👓 Karma Gerçeklik (MR)" -> item.displayName.contains("MR", ignoreCase = true) || item.displayName.contains("Mixed Reality", ignoreCase = true)
                 "🛠️ Araçlar" -> item.displayName.startsWith("_Utility", ignoreCase = true)
                 "🚀 Başlatıcılar" -> item.displayName.startsWith("_AppLauncher", ignoreCase = true)
-                "📦 Büyük (+2GB)" -> (item.sizeInfo.toDoubleOrNull() ?: 0.0) >= 2048.0
+                "📦 Büyük (+2GB)" -> item.sizeMb >= 2048.0
                 else -> true
             }
             val matchesSearch = if (searchQuery.isBlank()) true else {
                 "${item.displayName} ${item.folderName} ${item.packageName}".contains(searchQuery, ignoreCase = true)
             }
             matchesCategory && matchesSearch
+        }
+
+        when (selectedSort) {
+            SortOption.POPULARITY_DESC -> filtered.sortedByDescending { it.downloadCount }
+            SortOption.NAME_ASC -> filtered.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.displayName })
+            SortOption.NAME_DESC -> filtered.sortedWith(compareByDescending(String.CASE_INSENSITIVE_ORDER) { it.displayName })
+            SortOption.SIZE_DESC -> filtered.sortedByDescending { it.sizeMb }
+            SortOption.SIZE_ASC -> filtered.sortedBy { it.sizeMb }
+            SortOption.RECENT_DESC -> filtered.sortedByDescending { it.lastUpdated }
         }
     }
 
@@ -767,10 +820,10 @@ fun CloudLibraryTab(
             }
         }
 
-        // Search & Options Row
+        // Search, Sort & Options Row
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
@@ -780,6 +833,39 @@ fun CloudLibraryTab(
                 modifier = Modifier.weight(1f),
                 singleLine = true
             )
+
+            // Sort Dropdown Button
+            Box {
+                OutlinedButton(
+                    onClick = { sortMenuExpanded = true },
+                    modifier = Modifier.height(54.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Text(selectedSort.title, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.width(6.dp))
+                    Text("▾")
+                }
+                DropdownMenu(
+                    expanded = sortMenuExpanded,
+                    onDismissRequest = { sortMenuExpanded = false }
+                ) {
+                    SortOption.values().forEach { option ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    option.title,
+                                    fontWeight = if (option == selectedSort) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (option == selectedSort) MaterialTheme.colorScheme.primary else Color.Unspecified
+                                )
+                            },
+                            onClick = {
+                                selectedSort = option
+                                sortMenuExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = deleteAfterInstall, onCheckedChange = onToggleDelete)
