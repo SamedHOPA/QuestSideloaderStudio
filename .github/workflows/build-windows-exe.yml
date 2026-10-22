@@ -1,0 +1,29 @@
+name: Build Windows Distributable (.exe / .msi)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Build Distributable Application
+        run: gradle createDistributable
+
+      - name: Upload Windows Portable App Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuestSideloaderStudio-Windows-Portable
+          path: build/compose/binaries/main/app/QuestSideloaderStudio/

@@ -1,0 +1,9 @@
+.gradle/
+build/
+.idea/
+*.iml
+downloads/
+backups/
+bin/*.exe
+bin/*.dll
+rclone.conf
