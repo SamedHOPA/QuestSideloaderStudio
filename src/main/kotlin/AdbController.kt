@@ -6,9 +6,28 @@ data class ConnectedDevice(val serial: String, val model: String, val state: Str
 
 class AdbController(private val adbPath: String = "adb") {
 
+    fun resolveAdbBinary(): String {
+        val appRoot = try {
+            File(AdbController::class.java.protectionDomain.codeSource.location.toURI()).parentFile?.parentFile
+        } catch (e: Exception) {
+            null
+        }
+
+        val candidates = listOfNotNull(
+            File("bin/adb.exe"),
+            File("../bin/adb.exe"),
+            if (appRoot != null) File(appRoot, "bin/adb.exe") else null,
+            File(System.getProperty("user.dir"), "bin/adb.exe"),
+            File(System.getenv("LOCALAPPDATA") ?: "", "Android/Sdk/platform-tools/adb.exe")
+        )
+
+        val found = candidates.find { it.exists() }
+        return found?.absolutePath ?: adbPath
+    }
+
     private suspend fun runCommand(vararg args: String): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val resolvedAdb = if (File("bin/adb.exe").exists()) "bin/adb.exe" else adbPath
+            val resolvedAdb = resolveAdbBinary()
             val command = listOf(resolvedAdb) + args
             val process = ProcessBuilder(command)
                 .redirectErrorStream(true)
@@ -29,15 +48,21 @@ class AdbController(private val adbPath: String = "adb") {
 
     suspend fun getConnectedDevices(): List<ConnectedDevice> {
         val result = runCommand("devices", "-l").getOrNull() ?: return emptyList()
-        return result.lines()
-            .drop(1)
-            .filter { it.isNotBlank() }
+        val lines = result.lines()
+        val headerIndex = lines.indexOfFirst { it.trim().startsWith("List of devices attached") }
+        val deviceLines = if (headerIndex != -1) lines.drop(headerIndex + 1) else lines
+
+        return deviceLines
+            .map { it.trim() }
+            .filter { it.isNotBlank() && !it.startsWith("*") }
             .mapNotNull { line ->
-                val parts = line.trim().split("\\s+".toRegex())
+                val parts = line.split("\\s+".toRegex())
                 if (parts.size >= 2) {
                     val serial = parts[0]
                     val state = parts[1]
-                    val model = parts.find { it.startsWith("model:") }?.substringAfter("model:") ?: "Android/Quest"
+                    val model = parts.find { it.startsWith("model:") }
+                        ?.substringAfter("model:")
+                        ?.replace("_", " ") ?: "Android/Quest"
                     ConnectedDevice(serial, model, state)
                 } else null
             }

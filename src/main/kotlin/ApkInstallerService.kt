@@ -13,10 +13,19 @@ data class ApkInfo(
 
 class ApkInstallerService(private val adbController: AdbController) {
 
-    private fun resolve7zBinary(): String? {
-        val candidates = listOf(
+    fun resolve7zBinary(): String? {
+        val appRoot = try {
+            File(ApkInstallerService::class.java.protectionDomain.codeSource.location.toURI()).parentFile?.parentFile
+        } catch (e: Exception) {
+            null
+        }
+
+        val candidates = listOfNotNull(
             File("bin/7z.exe"),
-            File("bin/7za.exe"),
+            File("../bin/7z.exe"),
+            if (appRoot != null) File(appRoot, "bin/7z.exe") else null,
+            File(System.getProperty("user.dir"), "bin/7z.exe"),
+            File("C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\7z.exe"),
             File("C:\\Program Files\\7-Zip\\7z.exe"),
             File("C:\\Program Files (x86)\\7-Zip\\7z.exe")
         )

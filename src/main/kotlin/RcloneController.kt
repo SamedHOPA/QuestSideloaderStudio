@@ -12,8 +12,23 @@ class RcloneController(
     private val configFile: File = File("config.json")
 ) {
 
-    private fun resolveRcloneBinary(): String =
-        if (File("bin/rclone.exe").exists()) "bin/rclone.exe" else rclonePath
+    fun resolveRcloneBinary(): String {
+        val appRoot = try {
+            File(RcloneController::class.java.protectionDomain.codeSource.location.toURI()).parentFile?.parentFile
+        } catch (e: Exception) {
+            null
+        }
+
+        val candidates = listOfNotNull(
+            File("bin/rclone.exe"),
+            File("../bin/rclone.exe"),
+            if (appRoot != null) File(appRoot, "bin/rclone.exe") else null,
+            File(System.getProperty("user.dir"), "bin/rclone.exe")
+        )
+
+        val found = candidates.find { it.exists() }
+        return found?.absolutePath ?: rclonePath
+    }
 
     fun loadSavedConfig(): PublicConfig {
         return try {
