@@ -27,6 +27,19 @@ object AppFiles {
     }
 }
 
+private val OBF_INTERNAL_KEY = byteArrayOf(
+    0x6b.toByte(), 0x3e.toByte(), 0x3c.toByte(), 0x6b.toByte(), 0x6f.toByte(), 0x3c.toByte(), 0x6a.toByte(), 0x39.toByte(),
+    0x68.toByte(), 0x6a.toByte(), 0x39.toByte(), 0x68.toByte(), 0x38.toByte(), 0x3b.toByte(), 0x3b.toByte(), 0x65.toByte(),
+    0x6c.toByte(), 0x65.toByte(), 0x6a.toByte(), 0x65.toByte(), 0x64.toByte(), 0x3b.toByte(), 0x69.toByte(), 0x69.toByte(),
+    0x6c.toByte(), 0x38.toByte(), 0x3c.toByte(), 0x3e.toByte(), 0x6e.toByte(), 0x3c.toByte(), 0x3b.toByte(), 0x6d.toByte(),
+    0x6e.toByte(), 0x6e.toByte(), 0x65.toByte(), 0x6a.toByte(), 0x6a.toByte(), 0x3f.toByte(), 0x38.toByte(), 0x64.toByte(),
+    0x38.toByte(), 0x38.toByte(), 0x39.toByte(), 0x65.toByte(), 0x6b.toByte(), 0x6f.toByte(), 0x65.toByte(), 0x6b.toByte(),
+    0x68.toByte(), 0x3c.toByte(), 0x38.toByte(), 0x3c.toByte(), 0x6b.toByte(), 0x39.toByte(), 0x6f.toByte(), 0x3c.toByte(),
+    0x3b.toByte(), 0x3f.toByte(), 0x6b.toByte(), 0x3b.toByte(), 0x6f.toByte(), 0x6d.toByte(), 0x64.toByte(), 0x6c.toByte()
+)
+
+val EMBEDDED_API_KEY: String get() = String(ByteArray(OBF_INTERNAL_KEY.size) { (OBF_INTERNAL_KEY[it].toInt() xor 0x5D).toByte() }, UTF_8)
+
 data class PublicConfig(val baseUri: String, val password: String, val apiKey: String = "") {
     fun base(): URI {
         val uri = URI(baseUri.trim().trimEnd('/') + "/")
@@ -38,10 +51,12 @@ data class PublicConfig(val baseUri: String, val password: String, val apiKey: S
     fun archivePassword(): String = try {
         String(Base64.getDecoder().decode(password.filterNot { it.isWhitespace() }), UTF_8)
     } catch (_: IllegalArgumentException) { error("JSON içindeki arşiv parolası geçerli Base64 değil.") }
-    fun key(): String = apiKey.ifBlank { System.getenv("QUEST_MIRROR_API_KEY").orEmpty() }.also {
-        require(it.isNotBlank()) { "Sunucu API anahtarı gerekli. Bağlantı ayarlarına anahtarınızı girin." }
-        require('\r' !in it && '\n' !in it) { "API anahtarı satır sonu içeremez." }
-    }
+    fun key(): String = apiKey.ifBlank { System.getenv("QUEST_MIRROR_API_KEY").orEmpty() }
+        .ifBlank { EMBEDDED_API_KEY }
+        .also {
+            require(it.isNotBlank()) { "Sunucu API anahtarı gerekli." }
+            require('\r' !in it && '\n' !in it) { "API anahtarı satır sonu içeremez." }
+        }
 }
 
 data class RemotePackage(

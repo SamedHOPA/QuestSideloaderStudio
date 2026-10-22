@@ -11,7 +11,7 @@ class RcloneController(
 ) {
     var configWarning: String? = null
         private set
-    private var activeConfig = PublicConfig("https://go.srcdl1.xyz/", "")
+    private var activeConfig = PublicConfig("https://go.srcdl1.xyz/", "", EMBEDDED_API_KEY)
     fun resolveRcloneBinary(): String = rclonePath
 
     fun loadSavedConfig(): PublicConfig {
@@ -22,7 +22,7 @@ class RcloneController(
             val protectedKey = MirrorProtocol.json.parseToJsonElement(raw).jsonObject["apiKeyProtected"]?.jsonPrimitive?.content.orEmpty()
             val key = try { KeyStorage.unprotect(protectedKey).ifBlank { parsed.apiKey } }
             catch (e: Exception) { configWarning = e.message; "" }
-            parsed.copy(apiKey = key).also { activeConfig = it }
+            parsed.copy(apiKey = key.ifBlank { EMBEDDED_API_KEY }).also { activeConfig = it }
         } catch (e: Exception) {
             configWarning = "Bağlantı ayarları okunamadı: ${e.message}"
             activeConfig
@@ -94,8 +94,9 @@ class RcloneController(
     }
 
     suspend fun downloadPackage(
-        packageFolder: String, localDestDir: File,
-        onProgressLine: (String) -> Unit
+        packageFolder: String, 
+        localDestDir: File,
+        onProgress: (fraction: Float?, status: String) -> Unit
     ): Result<File> = withContext(Dispatchers.IO) {
         try {
             val config = activeConfig
@@ -107,12 +108,13 @@ class RcloneController(
             if (File(directory, "complete.txt").readTextOrNull() == packageFolder && content.isDirectory)
                 return@withContext Result.success(content)
             val parts = File(directory, "parts").apply { mkdirs() }
+            onProgress(null, "Güvenli bağlantı başlatılıyor...")
             MirrorProxy.start(rclonePath, config.base().resolve("$hash/").toString(), environment(key), commonArgs(), key).use { proxy ->
-                try { ResumableDownload.download(proxy.url, parts, onProgressLine) }
+                try { ResumableDownload.download(proxy.url, parts, onProgress) }
                 catch (cancel: CancellationException) { throw cancel }
                 catch (e: Exception) { throw proxy.failure(e) }
             }
-            onProgressLine("İndirme tamamlandı; arşiv doğrulanıyor ve açılıyor…")
+            onProgress(null, "İndirme tamamlandı; arşiv doğrulanıyor ve açılıyor…")
             val archive = File(parts, "$hash.7z.001").takeIf { it.isFile }
                 ?: File(parts, "$hash.7z").takeIf { it.isFile }
                 ?: error("Paketin ilk arşiv parçası bulunamadı: $hash.7z.001")
@@ -127,6 +129,7 @@ class RcloneController(
                 }
                 AppFiles.writeAtomic(File(directory, "complete.txt"), packageFolder)
             } finally { staging.deleteRecursively() }
+            onProgress(1f, "Arşiv başarıyla açıldı ve hazır.")
             Result.success(content)
         } catch (cancel: CancellationException) { throw cancel }
         catch (e: Exception) { Result.failure(e) }

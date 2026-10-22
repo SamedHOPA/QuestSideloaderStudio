@@ -85,7 +85,12 @@ object ResumableDownload {
         throw HttpFailure(status, seconds.coerceIn(1, 300) * 1000,
             "HTTP $status: ${body.replace(Regex("<[^>]*>"), " ").take(600)}")
     }
-    suspend fun download(base: URI, destination: File, progress: (String) -> Unit) = withContext(Dispatchers.IO) {
+    suspend fun download(
+        base: URI,
+        destination: File,
+        progress: (fraction: Float?, status: String) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        progress(null, "Bağlantı kuruluyor ve dosya listesi taranıyor...")
         val listing = retry {
             val conn = connection(base)
             try { checkResponse(conn); conn.inputStream.bufferedReader().use { it.readText() } }
@@ -97,8 +102,9 @@ object ResumableDownload {
             ensureActive()
             val filename = URLDecoder.decode(uri.rawPath.substringAfterLast('/').replace("+", "%2B"), "UTF-8")
             require(MirrorProtocol.safeArchiveEntry(filename) && '/' !in filename && '\\' !in filename && filename != ".") { "Geçersiz paket dosyası." }
-            progress("${index + 1}/${files.size}: $filename")
-            retry { downloadFile(uri, File(destination, filename), progress) }
+            val partPrefix = if (files.size > 1) "[${index + 1}/${files.size}] " else ""
+            progress(null, "${partPrefix}$filename hazırlanıyor...")
+            retry { downloadFile(uri, File(destination, filename), partPrefix, progress) }
         }
     }
     private suspend fun <T> retry(block: suspend () -> T): T {
@@ -113,7 +119,12 @@ object ResumableDownload {
             }
         }
     }
-    suspend fun downloadFile(uri: URI, file: File, progress: (String) -> Unit) {
+    suspend fun downloadFile(
+        uri: URI,
+        file: File,
+        partPrefix: String = "",
+        progress: (fraction: Float?, status: String) -> Unit
+    ) {
         val head = connection(uri, "HEAD")
         val size: Long
         val validator: String
@@ -156,14 +167,27 @@ object ResumableDownload {
                         val count = input.read(buffer)
                         if (count < 0) break
                         output.write(buffer, 0, count); received += count
-                        if (System.currentTimeMillis() - lastUpdate >= 1000) {
-                            progress(if (size > 0) "${file.name}: ${received * 100 / size}% (${received / 1048576} / ${size / 1048576} MB)" else "${file.name}: ${received / 1048576} MB")
+                        if (System.currentTimeMillis() - lastUpdate >= 400) {
+                            if (size > 0) {
+                                val fraction = (received.toFloat() / size.toFloat()).coerceIn(0f, 1f)
+                                val pct = (fraction * 100).toInt()
+                                val curMb = received / 1048576
+                                val totMb = size / 1048576
+                                progress(fraction, "${partPrefix}${file.name}: %$pct ($curMb / $totMb MB)")
+                            } else {
+                                progress(null, "${partPrefix}${file.name}: ${received / 1048576} MB")
+                            }
                             lastUpdate = System.currentTimeMillis()
                         }
                     }
                 }
             }
             if (size >= 0 && received != size) throw java.io.IOException("Eksik indirme: $received / $size bayt. Tekrar deneniyor.")
+            if (size >= 0) {
+                val curMb = received / 1048576
+                val totMb = size / 1048576
+                progress(1f, "${partPrefix}${file.name}: %100 ($curMb / $totMb MB)")
+            }
         } finally { conn.disconnect() }
     }
 }
