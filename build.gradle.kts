@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.sideloader"
-version = "1.0.0"
+version = "1.1.0"
 
 repositories {
     mavenCentral()
@@ -19,6 +19,8 @@ dependencies {
     implementation(compose.material3)
     implementation("net.dongliu:apk-parser:2.6.10")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    testImplementation(kotlin("test"))
 }
 
 compose.desktop {
@@ -27,7 +29,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Exe, TargetFormat.Msi)
             packageName = "QuestSideloaderStudio"
-            packageVersion = "1.0.0"
+            packageVersion = "1.1.0"
             windows {
                 menuGroup = "Quest Sideloader Studio"
                 shortcut = true
