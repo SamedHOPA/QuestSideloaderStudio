@@ -48,7 +48,7 @@ class MirrorIntegrationTest {
             controller.saveConfig(PublicConfig("http://127.0.0.1:${server.address.port}/mirror/", "dGVzdHB3", "test-api-key"))
             val packages = controller.listRemotePackages().getOrThrow()
             assertEquals("Test Release", packages.single().folderName)
-            val content = controller.downloadPackage(packageFolder = packages.single().folderName, localDestDir = File(dir, "downloads")) {}.getOrThrow()
+            val content = controller.downloadPackage(packageFolder = packages.single().folderName, localDestDir = File(dir, "downloads")) { _, _ -> }.getOrThrow()
             assertContentEquals(apk.readBytes(), File(content, "demo.apk").readBytes())
             assertTrue(requests.all { it.second == "test-api-key" }, requests.toString())
             failMetadata = true
@@ -126,7 +126,7 @@ class MirrorIntegrationTest {
         try { test(URI("http://127.0.0.1:${server.address.port}/file"), requests, data) } finally { server.stop(0) }
     }
     private suspend fun seedPartial(uri: URI, file: File) {
-        ResumableDownload.downloadFile(uri, file) {}
+        ResumableDownload.downloadFile(uri, file) { _, _ -> }
         java.io.RandomAccessFile(file, "rw").use { it.setLength(1000) }
     }
     @Test fun rangeResumeIsByteExact() = withFileServer { uri, requests, data ->
@@ -134,7 +134,7 @@ class MirrorIntegrationTest {
         try {
             val file = File(dir, "file")
             seedPartial(uri, file)
-            ResumableDownload.downloadFile(uri, file) {}
+            ResumableDownload.downloadFile(uri, file) { _, _ -> }
             assertTrue("GET bytes=1000-" in requests)
             assertContentEquals(data, file.readBytes())
         } finally { dir.deleteRecursively() }
@@ -144,7 +144,7 @@ class MirrorIntegrationTest {
         try {
             val file = File(dir, "file")
             seedPartial(uri, file)
-            ResumableDownload.downloadFile(uri, file) {}
+            ResumableDownload.downloadFile(uri, file) { _, _ -> }
             assertContentEquals(data, file.readBytes())
         } finally { dir.deleteRecursively() }
     }
@@ -153,7 +153,7 @@ class MirrorIntegrationTest {
         try {
             val file = File(dir, "file")
             seedPartial(uri, file)
-            assertFailsWith<IllegalStateException> { ResumableDownload.downloadFile(uri, file) {} }
+            assertFailsWith<IllegalStateException> { ResumableDownload.downloadFile(uri, file) { _, _ -> } }
             assertContentEquals(data.copyOfRange(0, 1000), file.readBytes())
         } finally { dir.deleteRecursively() }
     }
@@ -190,7 +190,7 @@ class MirrorIntegrationTest {
         try {
             MirrorProxy.start(AppFiles.binary("rclone"), "http://127.0.0.1:${server.address.port}/mirror/hash/",
                 RcloneController.environment("test-api-key"), RcloneController.commonArgs(), "test-api-key").use { proxy ->
-                try { ResumableDownload.download(proxy.url, dir) {} }
+                try { ResumableDownload.download(proxy.url, dir) { _, _ -> } }
                 catch (e: Exception) { throw proxy.failure(java.io.IOException("${e.message}; observed=$received; proxy=${proxy.url}", e)) }
             }
             assertContentEquals(bytes, File(dir, "part.001").readBytes())

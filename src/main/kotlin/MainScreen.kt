@@ -1,6 +1,7 @@
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -10,6 +11,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -111,6 +114,7 @@ fun SideloaderApp(
     var deleteAfterInstall by remember { mutableStateOf(true) }
 
     val isLauncherInstalled = remember(installedPackages) { installedPackages.contains("com.threethan.launcher") }
+    var favorites by remember { mutableStateOf(FavoritesManager.loadFavorites()) }
 
     // Server Config
     val initialConfig = remember { rcloneController.loadSavedConfig() }
@@ -394,6 +398,13 @@ fun SideloaderApp(
                             isWorking = isWorking,
                             hasDevice = devices.isNotEmpty(),
                             isLauncherInstalled = isLauncherInstalled,
+                            favorites = favorites,
+                            onToggleFavorite = { item ->
+                                val updated = FavoritesManager.toggleFavorite(item, favorites)
+                                favorites = updated
+                                val isNowFav = FavoritesManager.isFavorite(item, updated)
+                                appendLog(if (isNowFav) "⭐ '${item.displayName}' favorilere eklendi." else "☆ '${item.displayName}' favorilerden çıkarıldı.")
+                            },
                             onInstallLauncher = ::installAndOptimizeLightningLauncher,
                             onLaunchLauncher = {
                                 scope.launch {
@@ -1041,6 +1052,8 @@ fun LocalSideloadTab(
 fun GameGridCard(
     item: RemotePackage,
     thumbnailFile: File?,
+    isFavorite: Boolean,
+    onToggleFavorite: (RemotePackage) -> Unit,
     isWorking: Boolean,
     hasDevice: Boolean,
     onDownloadOnly: (RemotePackage) -> Unit,
@@ -1107,21 +1120,45 @@ fun GameGridCard(
                     }
                 }
 
-                // Size Badge
-                if (item.sizeInfo.isNotBlank()) {
+                // Size Badge & Favorite Star
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (item.sizeInfo.isNotBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color.Black.copy(alpha = 0.8f)
+                        ) {
+                            Text(
+                                text = formatSize(item.sizeInfo),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+
                     Surface(
+                        shape = CircleShape,
+                        color = if (isFavorite) Color(0xFFF59E0B).copy(alpha = 0.95f) else Color.Black.copy(alpha = 0.75f),
+                        border = BorderStroke(1.dp, if (isFavorite) Color(0xFFFBBF24) else Color.White.copy(alpha = 0.35f)),
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(6.dp),
-                        shape = RoundedCornerShape(4.dp),
-                        color = Color.Black.copy(alpha = 0.8f)
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .clickable { onToggleFavorite(item) }
                     ) {
-                        Text(
-                            text = formatSize(item.sizeInfo),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = if (isFavorite) "★" else "☆",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (isFavorite) Color.White else Color.White.copy(alpha = 0.85f),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -1187,6 +1224,8 @@ fun GameGridCard(
 fun GameListRow(
     item: RemotePackage,
     thumbnailFile: File?,
+    isFavorite: Boolean,
+    onToggleFavorite: (RemotePackage) -> Unit,
     isWorking: Boolean,
     hasDevice: Boolean,
     onDownloadOnly: (RemotePackage) -> Unit,
@@ -1202,6 +1241,26 @@ fun GameListRow(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Surface(
+                shape = CircleShape,
+                color = if (isFavorite) Color(0xFFF59E0B).copy(alpha = 0.2f) else Color.Transparent,
+                border = BorderStroke(1.dp, if (isFavorite) Color(0xFFF59E0B) else Color.Gray.copy(alpha = 0.35f)),
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .clickable { onToggleFavorite(item) }
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = if (isFavorite) "★" else "☆",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (isFavorite) Color(0xFFF59E0B) else Color.Gray
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
             Box(
                 modifier = Modifier
                     .size(56.dp)
@@ -1273,6 +1332,8 @@ fun CloudLibraryTab(
     isWorking: Boolean,
     hasDevice: Boolean,
     isLauncherInstalled: Boolean,
+    favorites: Set<String>,
+    onToggleFavorite: (RemotePackage) -> Unit,
     onInstallLauncher: () -> Unit,
     onLaunchLauncher: () -> Unit,
     onRefreshCatalog: () -> Unit,
@@ -1286,23 +1347,27 @@ fun CloudLibraryTab(
     var selectedSort by remember { mutableStateOf(SortOption.POPULARITY_DESC) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
 
-    val categories = listOf(
-        "Tümü",
-        "🎮 VR Oyunları",
-        "👓 Karma Gerçeklik (MR)",
-        "🛠️ Araçlar",
-        "🚀 Başlatıcılar",
-        "📦 Büyük (+2GB)"
-    )
+    val categories = remember(favorites.size) {
+        listOf(
+            "Tümü",
+            if (favorites.isNotEmpty()) "⭐ Favorilerim (${favorites.size})" else "⭐ Favorilerim",
+            "🎮 VR Oyunları",
+            "👓 Karma Gerçeklik (MR)",
+            "🛠️ Araçlar",
+            "🚀 Başlatıcılar",
+            "📦 Büyük (+2GB)"
+        )
+    }
 
-    val filteredList = remember(remotePackages, searchQuery, selectedCategory, selectedSort) {
+    val filteredList = remember(remotePackages, searchQuery, selectedCategory, selectedSort, favorites) {
         val filtered = remotePackages.filter { item ->
-            val matchesCategory = when (selectedCategory) {
-                "🎮 VR Oyunları" -> !item.displayName.startsWith("_")
-                "👓 Karma Gerçeklik (MR)" -> item.displayName.contains("MR", ignoreCase = true) || item.displayName.contains("Mixed Reality", ignoreCase = true)
-                "🛠️ Araçlar" -> item.displayName.startsWith("_Utility", ignoreCase = true)
-                "🚀 Başlatıcılar" -> item.displayName.startsWith("_AppLauncher", ignoreCase = true)
-                "📦 Büyük (+2GB)" -> item.sizeMb >= 2048.0
+            val matchesCategory = when {
+                selectedCategory.startsWith("⭐ Favorilerim") -> FavoritesManager.isFavorite(item, favorites)
+                selectedCategory == "🎮 VR Oyunları" -> !item.displayName.startsWith("_")
+                selectedCategory == "👓 Karma Gerçeklik (MR)" -> item.displayName.contains("MR", ignoreCase = true) || item.displayName.contains("Mixed Reality", ignoreCase = true)
+                selectedCategory == "🛠️ Araçlar" -> item.displayName.startsWith("_Utility", ignoreCase = true)
+                selectedCategory == "🚀 Başlatıcılar" -> item.displayName.startsWith("_AppLauncher", ignoreCase = true)
+                selectedCategory == "📦 Büyük (+2GB)" -> item.sizeMb >= 2048.0
                 else -> true
             }
             val matchesSearch = if (searchQuery.isBlank()) true else {
@@ -1463,8 +1528,13 @@ fun CloudLibraryTab(
                 modifier = Modifier.weight(1f)
             ) {
                 items(categories) { cat ->
+                    val isSelected = if (cat.startsWith("⭐ Favorilerim")) {
+                        selectedCategory.startsWith("⭐ Favorilerim")
+                    } else {
+                        selectedCategory == cat
+                    }
                     FilterChip(
-                        selected = selectedCategory == cat,
+                        selected = isSelected,
                         onClick = { selectedCategory = cat },
                         label = { Text(cat, style = MaterialTheme.typography.bodySmall) }
                     )
@@ -1531,8 +1601,28 @@ fun CloudLibraryTab(
                     }
                 }
             } else if (filteredList.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Arama kriterinize uygun paket bulunamadı.", color = Color.Gray)
+                if (selectedCategory.startsWith("⭐ Favorilerim")) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("⭐", style = MaterialTheme.typography.displayMedium)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Favorilerinizde henüz oyun bulunmuyor.", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Oyun kartlarının sağ üstündeki yıldız (⭐) simgesine tıklayarak favorilerinize ekleyebilir, daha sonra bu sekmeden hızlıca indirebilirsiniz.",
+                            color = Color.Gray,
+                            style = MaterialTheme.typography.bodySmall,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        )
+                    }
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Arama kriterinize uygun paket bulunamadı.", color = Color.Gray)
+                    }
                 }
             } else if (isGridView) {
                 LazyVerticalGrid(
@@ -1545,9 +1635,14 @@ fun CloudLibraryTab(
                         val thumbFile = remember(item.packageName) {
                             getThumbnailFile(item.packageName)
                         }
+                        val isFav = remember(item.packageName, item.folderName, favorites) {
+                            FavoritesManager.isFavorite(item, favorites)
+                        }
                         GameGridCard(
                             item = item,
                             thumbnailFile = thumbFile,
+                            isFavorite = isFav,
+                            onToggleFavorite = onToggleFavorite,
                             isWorking = isWorking,
                             hasDevice = hasDevice,
                             onDownloadOnly = onDownloadOnly,
@@ -1561,9 +1656,14 @@ fun CloudLibraryTab(
                         val thumbFile = remember(item.packageName) {
                             getThumbnailFile(item.packageName)
                         }
+                        val isFav = remember(item.packageName, item.folderName, favorites) {
+                            FavoritesManager.isFavorite(item, favorites)
+                        }
                         GameListRow(
                             item = item,
                             thumbnailFile = thumbFile,
+                            isFavorite = isFav,
+                            onToggleFavorite = onToggleFavorite,
                             isWorking = isWorking,
                             hasDevice = hasDevice,
                             onDownloadOnly = onDownloadOnly,

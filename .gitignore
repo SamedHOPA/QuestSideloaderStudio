@@ -11,3 +11,4 @@ config.json
 cache/
 
 local.properties
+favorites.json

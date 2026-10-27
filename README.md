@@ -32,6 +32,7 @@
   - 📦 **Boyut (En Büyük / En Küçük):** Dosya boyutuna göre sıralama.
   - 🕒 **Son Güncellenen:** En yeni eklenen veya güncellenen paketleri öne çıkarma.
 - **Kategori Filtreleri:** VR Oyunları, Karma Gerçeklik (MR), Araçlar (Utility), Özel Başlatıcılar (Launchers) ve +2GB büyük yapımlar.
+- **⭐ Favoriler & İstek Listesi:** Kart ve liste görünümlerindeki yıldız (⭐) butonuna tek tıkla dokunarak oyunları favorilerinize ekleyin. '⭐ Favorilerim' filtre sekmesinden listenize dilediğiniz an ulaşıp tek tıkla indirin ve kurun.
 
 ### ⬇️ Kesintisiz İndirme & Otomatik Kurulum (Sideloading)
 - **Dayanıklı Çok Parçalı İndirme:** Bağlantı kesilse dahi kaldığı bayttan devam edebilen resumable HTTP indirme akışı.
