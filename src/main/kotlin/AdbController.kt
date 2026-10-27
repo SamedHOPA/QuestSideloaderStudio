@@ -112,4 +112,15 @@ class AdbController(private val adbPath: String = "adb") {
         val res = runCommand("pull", "/sdcard/Android/data/$packageName", destDir.absolutePath)
         return if (res.isSuccess) Result.success(destDir) else Result.failure(res.exceptionOrNull()!!)
     }
+
+    suspend fun launchPackage(packageName: String): Result<String> =
+        runCommand("shell", "monkey", "-p", packageName, "-c", "android.intent.category.LAUNCHER", "1")
+
+    suspend fun optimizeLightningLauncher(): Result<String> {
+        val pkg = "com.threethan.launcher"
+        runCommand("shell", "pm", "grant", pkg, "android.permission.READ_EXTERNAL_STORAGE")
+        runCommand("shell", "pm", "grant", pkg, "android.permission.WRITE_EXTERNAL_STORAGE")
+        runCommand("shell", "appops", "set", pkg, "MANAGE_EXTERNAL_STORAGE", "allow")
+        return Result.success("Lightning Launcher izinleri başarıyla tanımlandı.")
+    }
 }

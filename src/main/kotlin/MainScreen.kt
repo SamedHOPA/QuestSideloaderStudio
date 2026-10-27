@@ -101,7 +101,7 @@ fun SideloaderApp(
     installerService: ApkInstallerService
 ) {
     val scope = rememberCoroutineScope()
-    var selectedTab by remember { mutableStateOf(1) } // Default directly to Cloud Library for best user flow
+    var selectedTab by remember { mutableStateOf(1) } // Default directly to Cloud Library
     var devices by remember { mutableStateOf<List<ConnectedDevice>>(emptyList()) }
     var installedPackages by remember { mutableStateOf<List<String>>(emptyList()) }
     var remotePackages by remember { mutableStateOf(rcloneController.loadCachedPackages()) }
@@ -109,6 +109,8 @@ fun SideloaderApp(
     var logs by remember { mutableStateOf(listOf("Sistem hazır. Meta Quest veya Android cihazınızı bağlayın.")) }
     var isWorking by remember { mutableStateOf(false) }
     var deleteAfterInstall by remember { mutableStateOf(true) }
+
+    val isLauncherInstalled = remember(installedPackages) { installedPackages.contains("com.threethan.launcher") }
 
     // Server Config
     val initialConfig = remember { rcloneController.loadSavedConfig() }
@@ -243,12 +245,54 @@ fun SideloaderApp(
         }
     }
 
+    fun installAndOptimizeLightningLauncher() {
+        scope.launch {
+            isWorking = true
+            appendLog("⚡ Lightning Launcher kurulum akışı başlatılıyor...")
+            try {
+                val launcherPkg = remotePackages.find {
+                    it.packageName == "com.threethan.launcher" || it.folderName.contains("LightningLauncher", ignoreCase = true)
+                } ?: RemotePackage(
+                    folderName = "_AppLauncher - LightningLauncher v1014+10.0.1 -OpenSource",
+                    sizeInfo = "3",
+                    displayName = "Lightning Launcher",
+                    packageName = "com.threethan.launcher",
+                    versionCode = "1014"
+                )
+
+                appendLog("⬇️ '${launcherPkg.displayName}' paketi indiriliyor...")
+                val downloaded = rcloneController.downloadPackage(
+                    packageFolder = launcherPkg.folderName,
+                    localDestDir = tempDownloadDir,
+                    onProgress = { fraction, status ->
+                        if (fraction == null || fraction == 1f) appendLog(status)
+                    }
+                ).getOrThrow()
+
+                appendLog("📦 Gözlüğe kuruluyor (APK)...")
+                installerService.sideloadDirectoryOrApk(downloaded, rcloneController.archivePassword()) { appendLog(it) }
+                    .getOrThrow()
+
+                appendLog("⚙️ Depolama ve sistem erişim izinleri tanımlanıyor...")
+                val optRes = adbController.optimizeLightningLauncher()
+                appendLog(optRes.getOrElse { "İzin uyarısı: ${it.message}" })
+
+                appendLog("🎉 Lightning Launcher başarıyla kuruldu ve optimize edildi! Gözlükte açılıyor...")
+                adbController.launchPackage("com.threethan.launcher")
+                refreshDeviceData()
+            } catch (e: Exception) {
+                appendLog("❌ Lightning Launcher kurulum hatası: ${e.message}")
+            } finally {
+                isWorking = false
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         refreshDeviceData()
         if (remotePackages.isNotEmpty()) {
             appendLog("📚 Önbellekten ${remotePackages.size} adet oyun kütüphaneye yüklendi.")
         } else if (mirrorUrl.isBlank() || mirrorPassword.isBlank()) {
-            // First time launch: guide the user with settings dialog
             showSettingsDialog = true
         }
     }
@@ -349,6 +393,14 @@ fun SideloaderApp(
                             onToggleDelete = { deleteAfterInstall = it },
                             isWorking = isWorking,
                             hasDevice = devices.isNotEmpty(),
+                            isLauncherInstalled = isLauncherInstalled,
+                            onInstallLauncher = ::installAndOptimizeLightningLauncher,
+                            onLaunchLauncher = {
+                                scope.launch {
+                                    appendLog("🚀 Lightning Launcher gözlükte başlatılıyor...")
+                                    adbController.launchPackage("com.threethan.launcher")
+                                }
+                            },
                             onRefreshCatalog = { fetchCatalog() },
                             onOpenSettings = { showSettingsDialog = true },
                             onDownloadOnly = { download(it, false) },
@@ -359,6 +411,23 @@ fun SideloaderApp(
                         2 -> QuestTweaksTab(
                             isWorking = isWorking,
                             hasDevice = devices.isNotEmpty(),
+                            isLauncherInstalled = isLauncherInstalled,
+                            onInstallLauncher = ::installAndOptimizeLightningLauncher,
+                            onLaunchLauncher = {
+                                scope.launch {
+                                    appendLog("🚀 Lightning Launcher gözlükte başlatılıyor...")
+                                    adbController.launchPackage("com.threethan.launcher")
+                                }
+                            },
+                            onOptimizeLauncher = {
+                                scope.launch {
+                                    isWorking = true
+                                    appendLog("⚡ Lightning Launcher izinleri tanımlanıyor...")
+                                    val res = adbController.optimizeLightningLauncher()
+                                    appendLog(res.getOrElse { "Hata: ${it.message}" })
+                                    isWorking = false
+                                }
+                            },
                             onSetHz = { hz ->
                                 scope.launch {
                                     adbController.setQuestRefreshRate(hz)
@@ -1203,6 +1272,9 @@ fun CloudLibraryTab(
     onToggleDelete: (Boolean) -> Unit,
     isWorking: Boolean,
     hasDevice: Boolean,
+    isLauncherInstalled: Boolean,
+    onInstallLauncher: () -> Unit,
+    onLaunchLauncher: () -> Unit,
     onRefreshCatalog: () -> Unit,
     onOpenSettings: () -> Unit,
     onDownloadOnly: (RemotePackage) -> Unit,
@@ -1314,9 +1386,68 @@ fun CloudLibraryTab(
                 Text("🔄 Kataloğu Yenile")
             }
 
+            // Quick Launcher Launch Button if installed
+            if (hasDevice && isLauncherInstalled) {
+                OutlinedButton(
+                    onClick = onLaunchLauncher,
+                    enabled = !isWorking,
+                    modifier = Modifier.height(54.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF10B981))
+                ) {
+                    Text("⚡ VR Başlatıcı Aç", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = deleteAfterInstall, onCheckedChange = onToggleDelete)
                 Text("Kurulum sonrası temizle", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        // Optional Launcher Helper Banner
+        if (hasDevice && !isLauncherInstalled) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF6366F1).copy(alpha = 0.15f)),
+                border = BorderStroke(1.dp, Color(0xFF6366F1).copy(alpha = 0.4f))
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("💡", style = MaterialTheme.typography.titleMedium)
+                        Column {
+                            Text(
+                                "İndirdiğiniz oyunları 'Bilinmeyen Kaynaklar' menüsüne girmeden açmak ister misiniz?",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                            Text(
+                                "Lightning Launcher ile sideload oyunlarınız afişleriyle ana menüde listelenir ve tek tıkla açılır.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFC7D2FE)
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = onInstallLauncher,
+                        enabled = !isWorking,
+                        modifier = Modifier.height(34.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+                    ) {
+                        Text("⚡ Şimdi Kur & Optimize Et", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
             }
         }
 
@@ -1449,11 +1580,101 @@ fun CloudLibraryTab(
 fun QuestTweaksTab(
     isWorking: Boolean,
     hasDevice: Boolean,
+    isLauncherInstalled: Boolean,
+    onInstallLauncher: () -> Unit,
+    onLaunchLauncher: () -> Unit,
+    onOptimizeLauncher: () -> Unit,
     onSetHz: (Int) -> Unit,
     onSetResolution: (Int, Int) -> Unit,
     onSetProximity: (Boolean) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+
+        // Featured VR Launcher Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, Color(0xFF6366F1).copy(alpha = 0.5f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF6366F1).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("⚡", style = MaterialTheme.typography.titleLarge)
+                        }
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Lightning Launcher (Özel VR Ana Menüsü)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = if (isLauncherInstalled) Color(0xFF10B981).copy(alpha = 0.2f) else Color(0xFFE0E7FF).copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = if (isLauncherInstalled) "🟢 Gözlükte Kurulu" else "⚪ Kurulu Değil",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isLauncherInstalled) Color(0xFF10B981) else Color(0xFFA1A1AA),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Bilinmeyen Kaynaklar menüsüne girmeden tüm sideload oyunlarınızı afişleriyle açabileceğiniz modern konsol arayüzü.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (isLauncherInstalled) {
+                        Button(
+                            onClick = onLaunchLauncher,
+                            enabled = hasDevice && !isWorking,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                        ) {
+                            Text("🚀 Gözlükte Başlat")
+                        }
+                        OutlinedButton(
+                            onClick = onOptimizeLauncher,
+                            enabled = hasDevice && !isWorking
+                        ) {
+                            Text("⚡ İzinleri & Ayarları Yenile")
+                        }
+                        OutlinedButton(
+                            onClick = onInstallLauncher,
+                            enabled = hasDevice && !isWorking
+                        ) {
+                            Text("🔄 Yeniden Kur / Güncelle")
+                        }
+                    } else {
+                        Button(
+                            onClick = onInstallLauncher,
+                            enabled = hasDevice && !isWorking,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+                        ) {
+                            Text("⚡ Tek Tıkla Lightning Launcher Kur & Optimize Et")
+                        }
+                    }
+                }
+            }
+        }
+
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Ekran Yenileme Hızı (Refresh Rate)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

@@ -9,3 +9,5 @@ bin/*.dll
 rclone.conf
 config.json
 cache/
+
+local.properties
