@@ -39,6 +39,12 @@
 - **Tek Tıkla APK + OBB Kurulumu:** Cihaz modeline bakılmaksızın APK'yı kurar ve OBB verilerini `Android/obb/<paket>` klasörüne otomatik taşır.
 - **Temizlik Modu:** Kurulum tamamlandıktan sonra diskte yer kaplamaması için geçici indirme arşivlerini isteğe bağlı otomatik temizler.
 
+### ⚡ Lightning Launcher Entegrasyonu (Özel VR Ana Menü)
+- **Bilinmeyen Kaynaklar'a Son:** Sideload edilen oyunları Meta'nın gizli "Bilinmeyen Kaynaklar" alt menüsüne girmeden doğrudan özel bir VR konsol panosunda listeleme.
+- **Tek Tıkla Kurulum & Optimizasyon:** `Quest Tweaks` veya `Bulut Kütüphanesi` sekmesinden tek tıkla en güncel Lightning Launcher'ı indirir, kurar ve Android 12+ depolama izinlerini (`MANAGE_EXTERNAL_STORAGE`) otomatik yapılandırır.
+- **Otomatik Afiş & 3D Kapak Desteği:** Lightning Launcher, SteamGridDB ve dahili kütüphanesiyle tüm sideload oyunlarınıza dikey 3D afişler ve başlıklar kazandırır.
+- **Hızlı Başlatıcı Kontrolü:** Uygulama içerisinden doğrudan gözlükte Lightning Launcher'ı tek tıkla açabilme (`🚀 Gözlükte Başlat`).
+
 ### 📊 Modern İndirme Paneli & Katlanabilir Canlı Konsol
 - **Yüzen İndirme Kartı (Download Dock):**
   - İndirilen dosya adı, yüzdelik ilerleme çubuğu (`LinearProgressIndicator`), indirilen / toplam MB ve anlık durum mesajı.
